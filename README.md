@@ -4,7 +4,25 @@ This repository helps a coding agent install and configure a selected set of ski
 
 The local entrypoint needs Python 3. Spec Kit uses `uv` unless `specify` is already installed. Matt Pocock's skills, Archify, UI UX Pro Max, and Taste Skill use Node.js/npm; CodeGraph uses its CLI or npm for a first-time CLI install. Upstream commands access the network during installation.
 
-Give your agent this repository URL and the target project path, then ask it to follow [the setup skill](skills/agent-skill-setup/SKILL.md). The agent should present the catalog as a checklist with every item selected, let you deselect items, run the installer for your selection, and finish the project-specific configuration and documentation review.
+## Install this workflow in your agent
+
+Clone the repository once, then package its entry skill for the agent you use:
+
+```bash
+git clone https://github.com/agol586/skills-setup.git
+cd skills-setup
+python3 scripts/install-agent-skill.py --agent codex
+# Or: python3 scripts/install-agent-skill.py --agent claude-code
+# Or: python3 scripts/install-agent-skill.py --agent cursor
+```
+
+You can give the agent the same task directly: “Clone `https://github.com/agol586/skills-setup.git`, follow its README, and run `python3 scripts/install-agent-skill.py --agent codex` to install `agent-skill-setup` into your personal skills. Verify that its packaged catalog and setup script are present.” Replace `codex` with your agent key. This first step installs the workflow into the agent, before selecting skills for any target project.
+
+The command installs `agent-skill-setup` under your personal skills directory: [Codex](https://developers.openai.com/codex/skills) uses `~/.agents/skills/`, [Claude Code](https://code.claude.com/docs/en/skills) uses `~/.claude/skills/`, and [Cursor](https://cursor.com/docs/skills) uses `~/.cursor/skills/`. It includes this repository's catalog, installer, and initialization guides with the entry skill, so the agent can run the workflow from another project. It leaves an existing same-name installation in place; review that copy before replacing it. If a new skill is not visible, start a new agent session.
+
+Open the target project in your agent and give it the target path. In Codex, mention `$agent-skill-setup`; in Claude Code or Cursor, invoke `/agent-skill-setup`. For example: “Use agent-skill-setup to install the built-in skills in `/path/to/project`; show me the all-selected checklist first.” Installing this **entry skill** makes the workflow available to the agent; the six catalog sources are installed into the target project only after you make that selection.
+
+Alternatively, give your agent this repository URL and the target project path, then ask it to follow [the setup skill](skills/agent-skill-setup/SKILL.md) from the checkout. The agent should present the catalog as a checklist with every item selected, let you deselect items, run the installer for your selection, and finish the project-specific configuration and documentation review.
 
 For a terminal-driven run:
 
