@@ -1,0 +1,11 @@
+# CodeGraph initializer
+
+Source: [colbymchenry/codegraph](https://github.com/colbymchenry/codegraph). Official references: [installation](https://github.com/colbymchenry/codegraph/blob/main/site/src/content/docs/getting-started/installation.md) and [configuration](https://github.com/colbymchenry/codegraph/blob/main/site/src/content/docs/getting-started/configuration.md).
+
+The installer installs the CLI through npm if absent, then requires `codegraph` on the current process's `PATH` so the agent's MCP config can launch it. It runs `codegraph install --target=<agent> --location=local --yes`, initializes a missing or empty index database with `codegraph init`, and checks `codegraph status`. The CodeGraph agent target keys are `codex`, `claude`, and `cursor`. Agent configuration and project indexing are separate steps; an existing `.codegraph/` directory alone is not evidence of a built graph or active MCP config.
+
+Restart the coding agent after installation so its MCP server loads. Codex also needs the target project marked trusted before its local `.codex/config.toml` MCP layer activates. From the target project, verify `codegraph explore` can retrieve a real symbol or file. Compare CodeGraph's marker-fenced block in `AGENTS.md`/`CLAUDE.md` with existing instructions and keep both. The root `.gitignore` should include `.codegraph/` for local index data; the installer stops if `.gitignore` is a symlink so it cannot silently edit another file. Preserve source and project configuration outside that directory. If the project has nested repositories or ignored first-party source, consult CodeGraph's configuration reference before deciding what to index.
+
+Check: `codegraph` is on `PATH`, `.codegraph/` contains a built graph, the selected agent has the MCP integration, a real exploration succeeds, and generated index data is ignored by Git.
+
+For an established project, CodeGraph is also the evidence source for the [architecture and behavior inventory](../brownfield.md). Query actual entrypoints and important flows with `codegraph explore`; use `callers`, `callees`, or `impact` to resolve uncertain edges. Record code references in the resulting architecture, flow, and constraint docs, then corroborate deployment and business claims with non-code sources.

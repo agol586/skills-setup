@@ -1,0 +1,44 @@
+[
+  {
+    "id": "spec-kit",
+    "name": "GitHub Spec Kit",
+    "source": "github/spec-kit",
+    "description": "Specification-driven development workflow",
+    "guide": "docs/initializers/spec-kit.md"
+  },
+  {
+    "id": "matt-pocock-skills",
+    "name": "Matt Pocock's skills",
+    "source": "mattpocock/skills",
+    "description": "Engineering skills and per-repository agent configuration",
+    "guide": "docs/initializers/matt-pocock-skills.md"
+  },
+  {
+    "id": "codegraph",
+    "name": "CodeGraph",
+    "source": "colbymchenry/codegraph",
+    "description": "Local code graph, CLI, and agent MCP integration",
+    "guide": "docs/initializers/codegraph.md"
+  },
+  {
+    "id": "archify",
+    "name": "Archify",
+    "source": "tt-a1i/archify",
+    "description": "Validated architecture and workflow diagrams",
+    "guide": "docs/initializers/archify.md"
+  },
+  {
+    "id": "ui-ux-pro-max",
+    "name": "UI UX Pro Max",
+    "source": "nextlevelbuilder/ui-ux-pro-max-skill",
+    "description": "UI/UX design intelligence and project-local design skills",
+    "guide": "docs/initializers/ui-ux-pro-max.md"
+  },
+  {
+    "id": "taste-skill",
+    "name": "Taste Skill",
+    "source": "Leonxlnx/taste-skill",
+    "description": "Default design-taste-frontend skill for frontend design judgment",
+    "guide": "docs/initializers/taste-skill.md"
+  }
+]

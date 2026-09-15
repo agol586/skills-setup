@@ -1,0 +1,9 @@
+# Matt Pocock skills initializer
+
+Source: [mattpocock/skills](https://github.com/mattpocock/skills). Official references: [installation](https://github.com/mattpocock/skills#installation-30-second-setup) and [`setup-matt-pocock-skills`](https://github.com/mattpocock/skills/blob/main/skills/engineering/setup-matt-pocock-skills/SKILL.md).
+
+The installer lists the live upstream skill pack before target writes, compares every name with the selected agent's existing skill directory and `skills-lock.json`, and installs only missing members through the `skills` CLI. An existing same-name skill not recorded as coming from `mattpocock/skills` stops the run so a team's custom skill is preserved. Existing Matt skill files are left intact, including project customizations. The pack includes `setup-matt-pocock-skills`, which is a **prompt-driven** repository initializer. Invoke that skill once in the target project; a file download alone does not configure the engineering skills.
+
+Use the target project's git remote and existing docs to propose the issue tracker. Read any existing label vocabulary and `CONTEXT.md`/ADR layout before configuring triage labels or domain docs. The upstream setup skill writes `docs/agents/issue-tracker.md` and `docs/agents/domain.md`, plus `docs/agents/triage-labels.md` when `triage` is installed, and links them from `AGENTS.md` or `CLAUDE.md`. Preserve nearby user-maintained instructions. If the project already has equivalent files, reconcile rather than create competing rules.
+
+Check: the selected agent has every name from the current upstream pack, including `setup-matt-pocock-skills`; the tracker and domain docs match the project's actual conventions; the agent instruction file points to them; and `triage-labels.md` exists when `triage` is present. Treat unresolved tracker or label preferences as configuration questions, not install approval.
