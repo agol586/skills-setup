@@ -20,9 +20,14 @@ ROOT = Path(__file__).resolve().parents[1]
 CATALOG = json.loads((ROOT / "catalog.json").read_text(encoding="utf-8"))
 ITEMS = {item["id"]: item for item in CATALOG}
 AGENTS = {
-    "codex": {"skills": "codex", "spec": "codex", "graph": "codex", "dir": ".agents"},
-    "claude-code": {"skills": "claude-code", "spec": "claude", "graph": "claude", "dir": ".claude"},
-    "cursor": {"skills": "cursor", "spec": "cursor-agent", "graph": "cursor", "dir": ".cursor"},
+    "codex": {"skills": "codex", "graph": "codex", "dir": ".agents"},
+    "claude-code": {"skills": "claude-code", "graph": "claude", "dir": ".claude"},
+    "cursor": {"skills": "cursor", "graph": "cursor", "dir": ".cursor"},
+}
+
+PACKS = {
+    "matt-pocock-skills": "setup-matt-pocock-skills",
+    "ponytail": "ponytail",
 }
 
 
@@ -54,51 +59,13 @@ def path_present(path: Path) -> bool:
 
 
 def check_local_skill_root(project: Path, agent: str) -> None:
-    root = project / AGENTS[agent]["dir"] / "skills"
-    if not root.resolve().is_relative_to(project.resolve()):
-        raise RuntimeError(f"Agent skill directory resolves outside the target project: {root}. Use a project-local directory before installation.")
-
-
-def check_spec_project(project: Path, agent: str) -> None:
-    if (project / ".specify").is_symlink():
-        raise RuntimeError(f"Spec Kit project directory is a symlink: {project / '.specify'}. Review its destination before changing managed files.")
-    skills = project / AGENTS[agent]["dir"] / "skills"
-    remnants = sorted(path.name for path in skills.iterdir() if path.name.startswith("speckit-")) if skills.is_dir() else []
-    if not (project / ".specify").exists() and remnants:
-        raise RuntimeError("Spec Kit project directory is missing while integration files remain. Restore .specify/ from the project baseline, or review a fresh Spec Kit init in an isolated checkout before replacing managed files.")
-
-
-def manifest_files(project: Path, key: str) -> list[Path] | None:
-    manifest = project / ".specify" / "integrations" / f"{key}.manifest.json"
-    if not manifest.is_file():
-        return None
-    try:
-        entries = json.loads(manifest.read_text(encoding="utf-8")).get("files")
-        if not isinstance(entries, dict) or not entries:
-            return None
-        paths = [Path(name) for name in entries]
-        if any(path.is_absolute() or ".." in path.parts for path in paths):
-            return None
-        return [project / path for path in paths]
-    except (OSError, ValueError, TypeError):
-        return None
-
-
-def spec_managed_files(project: Path, agent: str) -> list[Path] | None:
-    shared = manifest_files(project, "speckit")
-    selected = manifest_files(project, AGENTS[agent]["spec"])
-    return [*shared, *selected] if shared and selected else None
-
-
-def registered_spec_integrations(project: Path) -> set[str]:
-    metadata = project / ".specify" / "integration.json"
-    if not metadata.is_file():
-        return set()
-    try:
-        installed = json.loads(metadata.read_text(encoding="utf-8")).get("installed_integrations", [])
-        return set(installed) if isinstance(installed, list) and all(isinstance(item, str) for item in installed) else set()
-    except (OSError, ValueError, TypeError):
-        return set()
+    for directory in dict.fromkeys((".agents", AGENTS[agent]["dir"])):
+        parent = project / directory
+        root = parent / "skills"
+        if not root.resolve().is_relative_to(project.resolve()):
+            raise RuntimeError(f"Agent skill directory resolves outside the target project: {root}. Use a project-local directory before installation.")
+        if parent.is_symlink() or root.is_symlink():
+            raise RuntimeError(f"Agent skill root uses a symlink: {root}. Use a real project-local directory so installation artifacts can be ignored reliably.")
 
 
 def check_local_gitignore(project: Path) -> None:
@@ -122,18 +89,8 @@ def check_local_agent_config(project: Path) -> None:
 
 
 def status(project: Path, agent: str, item_id: str) -> str:
-    if item_id == "spec-kit":
-        managed = spec_managed_files(project, agent)
-        registered = AGENTS[agent]["spec"] in registered_spec_integrations(project)
-        if (project / ".specify").is_dir() and registered and managed and all(path.exists() for path in managed) and skill_path(project, agent, "speckit-specify").exists():
-            return "ready"
-        if (project / ".specify").exists():
-            return "project exists; integration needs repair or review"
-        skills = project / AGENTS[agent]["dir"] / "skills"
-        remnants = any(path.name.startswith("speckit-") for path in skills.iterdir()) if skills.is_dir() else False
-        return "integration files exist; project missing" if remnants else "absent"
-    if item_id == "matt-pocock-skills":
-        return "setup present; pack needs verification" if skill_path(project, agent, "setup-matt-pocock-skills").exists() else "absent"
+    if item_id in PACKS:
+        return "entry skill present; pack needs verification" if skill_path(project, agent, PACKS[item_id]).exists() else "absent"
     if item_id == "codegraph":
         database = project / ".codegraph" / "codegraph.db"
         if database.is_file() and database.stat().st_size > 0:
@@ -178,7 +135,7 @@ def inspect_project(project: Path, agent: str) -> None:
             print("Target is inside a larger Git checkout; review changes from its Git root.")
     else:
         print("Git root: unavailable; save a recoverable baseline before installation.")
-    evidence = ["README.md", "AGENTS.md", "CLAUDE.md", "docs", ".specify", ".gitignore", "package.json", "pyproject.toml", "go.mod"]
+    evidence = ["README.md", "AGENTS.md", "CLAUDE.md", "docs", ".gitignore", "package.json", "pyproject.toml", "go.mod"]
     present = [name for name in evidence if (project / name).exists()]
     print(f"Existing project evidence: {', '.join(present) if present else 'none'}")
     skills_dir = project / AGENTS[agent]["dir"] / "skills"
@@ -240,9 +197,9 @@ def locked_skill_sources(project: Path) -> dict[str, str]:
         raise RuntimeError(f"Cannot read skill provenance from {lock}: {exc}") from exc
 
 
-def is_matt_source(source: str) -> bool:
+def matches_source(source: str, expected: str) -> bool:
     value = source.strip().lower().removeprefix("https://github.com/").removeprefix("http://github.com/")
-    return value.rstrip("/").removesuffix(".git") == "mattpocock/skills"
+    return value.rstrip("/").removesuffix(".git") == expected.lower()
 
 
 def skill_identity(path: Path) -> tuple[str, str]:
@@ -264,14 +221,15 @@ def matches_uipro_companion(existing: Path, staged: Path) -> bool:
     return old_identity[1] == "claudekit" and old_identity == skill_identity(staged)
 
 
-def matt_skill_names(project: Path) -> list[str]:
+def pack_skill_names(project: Path, item_id: str) -> list[str]:
+    item = ITEMS[item_id]
     require("npx", "Install Node.js/npm before rerunning.", False)
-    command = ["npx", "--yes", "skills@latest", "add", "mattpocock/skills", "--list"]
+    command = ["npx", "--yes", "skills@latest", "add", item["source"], "--list"]
     print("$", shlex.join(command), f"(cwd: {project}; read-only upstream list)", flush=True)
     output = capture_npx(command, project)
     names = list(dict.fromkeys(re.findall(r"(?m)^[│|]    ([a-z][a-z0-9-]*)\s*$", output)))
-    if "setup-matt-pocock-skills" not in names:
-        raise RuntimeError("Could not identify Matt Pocock's complete upstream skill list; no project files were changed.")
+    if PACKS[item_id] not in names:
+        raise RuntimeError(f"Could not identify {item['name']} complete upstream skill list; no project files were changed.")
     return names
 
 
@@ -279,31 +237,34 @@ def prepare_selected(project: Path, agent: str, selected: list[str], dry_run: bo
     """Resolve whole-pack manifests and conflicts before any target writes."""
     if dry_run:
         return {}
+    check_local_gitignore(project)
     plans: dict[str, object] = {}
-    if any(item_id in selected for item_id in ("spec-kit", "matt-pocock-skills", "archify", "ui-ux-pro-max", "taste-skill")):
+    if any(item_id in selected for item_id in (*PACKS, "archify", "ui-ux-pro-max", "taste-skill")):
         check_local_skill_root(project, agent)
-    if "spec-kit" in selected:
-        check_spec_project(project, agent)
+        for directory in dict.fromkeys((".agents", AGENTS[agent]["dir"])):
+            check_local_gitignore(project / directory)
     if "codegraph" in selected:
-        check_local_gitignore(project)
         check_local_graph_index(project)
         check_local_agent_config(project)
     for item_id, name in (("archify", "archify"), ("taste-skill", "design-taste-frontend")):
         if item_id in selected and skill_dir(project, agent, name).is_symlink():
             raise RuntimeError(f"Selected skill path is a symlink: {skill_dir(project, agent, name)}. Review its destination before project-local installation.")
-    if "matt-pocock-skills" in selected:
-        names = matt_skill_names(project)
+    for item_id in PACKS:
+        if item_id not in selected:
+            continue
+        item = ITEMS[item_id]
+        names = pack_skill_names(project, item_id)
         sources = locked_skill_sources(project)
-        conflicts = [name for name in names if path_present(skill_dir(project, agent, name)) and not is_matt_source(sources.get(name, ""))]
+        conflicts = [name for name in names if path_present(skill_dir(project, agent, name)) and not matches_source(sources.get(name, ""), item["source"])]
         if conflicts:
             paths = ", ".join(str(skill_dir(project, agent, name)) for name in conflicts)
-            raise RuntimeError(f"Matt skill name conflicts with existing project skills: {paths}. Preserve or rename the existing skills before installing this pack.")
+            raise RuntimeError(f"{item['name']} skill name conflicts with existing project skills: {paths}. Preserve or rename the existing skills before installing this pack.")
         missing = [name for name in names if not skill_path(project, agent, name).exists()]
         blocked = [name for name in missing if path_present(skill_dir(project, agent, name))]
         if blocked:
-            raise RuntimeError(f"Incomplete existing Matt skill directories need manual review: {', '.join(blocked)}")
-        plans["matt-pocock-skills"] = missing
-        print(f"Matt pack preflight: {len(names)} upstream skills, {len(missing)} missing, no name conflicts.")
+            raise RuntimeError(f"Incomplete existing {item['name']} skill directories need manual review: {', '.join(blocked)}")
+        plans[item_id] = missing
+        print(f"{item['name']} pack preflight: {len(names)} upstream skills, {len(missing)} missing, no name conflicts.")
     if "ui-ux-pro-max" in selected:
         stage = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="skills-setup-uipro-")))
         ai = {"codex": "codex", "claude-code": "claude", "cursor": "cursor"}[agent]
@@ -343,7 +304,14 @@ def ensure_gitignore(project: Path, entries: list[str], dry_run: bool) -> None:
     path = project / ".gitignore"
     check_local_gitignore(project)
     old = path.read_text(encoding="utf-8") if path.exists() else ""
-    existing = {line.strip() for line in old.splitlines()}
+    # A later negation can undo an earlier rule, including via a wildcard.
+    # Reassert our rules after the last negation without interpreting Git globs.
+    existing = set()
+    for line in old.splitlines():
+        if line.startswith("!"):
+            existing.clear()
+        else:
+            existing.add(line.strip())
     missing = [entry for entry in entries if entry not in existing]
     if not missing:
         return
@@ -355,41 +323,43 @@ def ensure_gitignore(project: Path, entries: list[str], dry_run: bool) -> None:
     path.write_text(old + prefix + separator + "# Generated local skill data\n" + "\n".join(missing) + "\n", encoding="utf-8")
 
 
-def install_spec_kit(project: Path, agent: str, dry_run: bool) -> None:
-    if status(project, agent, "spec-kit") == "ready":
-        print("Spec Kit integration already present; review its constitution against project docs.")
-        return
-    check_spec_project(project, agent)
-    specify = ["specify"]
-    if shutil.which("specify") is None:
-        require("uv", "Install uv, or install specify-cli yourself before rerunning.", dry_run)
-        run(["uv", "tool", "install", "specify-cli"], project, dry_run)
-        specify = ["uv", "tool", "run", "--from", "specify-cli", "specify"]
-    integration = AGENTS[agent]["spec"]
-    if (project / ".specify").exists():
-        action = "upgrade" if integration in registered_spec_integrations(project) else "install"
-        run([*specify, "integration", action, integration], project, dry_run)
-    else:
-        run([*specify, "init", "--here", "--force", "--non-interactive", "--ignore-agent-tools", "--integration", integration], project, dry_run)
-    if not dry_run:
-        managed = spec_managed_files(project, agent)
-        if not (project / ".specify").is_dir() or integration not in registered_spec_integrations(project) or not managed or any(not path.exists() for path in managed) or not skill_path(project, agent, "speckit-specify").exists():
-            raise RuntimeError("Spec Kit did not create the complete selected project integration.")
-    print("Next: use docs/initializers/spec-kit.md to derive or review the constitution.")
+def ignore_install_artifacts(project: Path, agent: str, selected: list[str], dry_run: bool) -> None:
+    entries = []
+    if any(item_id != "codegraph" for item_id in selected):
+        # Skills CLI keeps canonical copies in .agents, with agent-specific links.
+        entries.append("/.agents/skills/")
+        if AGENTS[agent]["dir"] != ".agents":
+            entries.append(f"/{AGENTS[agent]['dir']}/skills/")
+    if any(item_id in (*PACKS, "archify", "taste-skill") for item_id in selected):
+        entries.append("/skills-lock.json")
+    if "codegraph" in selected:
+        entries.append(".codegraph/")
+    if entries:
+        ensure_gitignore(project, entries, dry_run)
+    if any(item_id != "codegraph" for item_id in selected):
+        # An agent-level ignore file takes precedence over the root rules.
+        for directory in dict.fromkeys((".agents", AGENTS[agent]["dir"])):
+            parent = project / directory
+            if path_present(parent / ".gitignore"):
+                ensure_gitignore(parent, ["/skills/"], dry_run)
 
 
-def install_matt(project: Path, agent: str, dry_run: bool, missing: list[str] | None = None) -> None:
+def install_skill_pack(project: Path, agent: str, dry_run: bool, item_id: str, missing: list[str] | None = None) -> None:
+    item = ITEMS[item_id]
     if not dry_run and missing is None:
-        raise RuntimeError("Matt pack preflight is required before installation.")
-    if not dry_run and not missing:
-        print("Matt Pocock's complete upstream pack is already present; verify docs/agents configuration.")
-        return
-    require("npx", "Install Node.js/npm before rerunning.", dry_run)
-    names = ["*"] if dry_run else missing
-    run(["npx", "--yes", "skills@latest", "add", "mattpocock/skills", "--skill", *names, "--agent", AGENTS[agent]["skills"], "--yes"], project, dry_run)
-    if not dry_run and any(not skill_path(project, agent, name).exists() for name in missing):
-        raise RuntimeError("Matt Pocock's selected missing skills were not all installed into the agent directory.")
-    print("Next: invoke setup-matt-pocock-skills in the agent; it is prompt-driven.")
+        raise RuntimeError(f"{item['name']} pack preflight is required before installation.")
+    if dry_run or missing:
+        require("npx", "Install Node.js/npm before rerunning.", dry_run)
+        names = ["*"] if dry_run else missing
+        run(["npx", "--yes", "skills@latest", "add", item["source"], "--skill", *names, "--agent", AGENTS[agent]["skills"], "--yes"], project, dry_run)
+        if not dry_run and any(not skill_path(project, agent, name).exists() for name in missing):
+            raise RuntimeError(f"{item['name']} selected missing skills were not all installed into the agent directory.")
+    else:
+        print(f"{item['name']} complete upstream pack is already present.")
+    if item_id == "matt-pocock-skills":
+        print("Next: invoke setup-matt-pocock-skills as the default project initializer; it is prompt-driven.")
+    else:
+        print(f"Next: read {item['guide']} and reconcile the installed skills with project guidance.")
 
 
 def install_codegraph(project: Path, agent: str, dry_run: bool) -> None:
@@ -482,8 +452,6 @@ def install_taste_skill(project: Path, agent: str, dry_run: bool) -> None:
 
 
 INSTALLERS = {
-    "spec-kit": install_spec_kit,
-    "matt-pocock-skills": install_matt,
     "codegraph": install_codegraph,
     "archify": install_archify,
     "ui-ux-pro-max": install_ui_ux_pro_max,
@@ -519,9 +487,10 @@ def main(argv: list[str] | None = None) -> int:
         inspect_project(args.project, args.agent)
         with ExitStack() as stack:
             plans = prepare_selected(args.project, args.agent, selected, args.dry_run, stack)
+            ignore_install_artifacts(args.project, args.agent, selected, args.dry_run)
             for item_id in selected:
-                if item_id == "matt-pocock-skills":
-                    install_matt(args.project, args.agent, args.dry_run, plans.get(item_id))
+                if item_id in PACKS:
+                    install_skill_pack(args.project, args.agent, args.dry_run, item_id, plans.get(item_id))
                 elif item_id == "ui-ux-pro-max":
                     install_ui_ux_pro_max(args.project, args.agent, args.dry_run, plans.get(item_id))
                 else:

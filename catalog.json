@@ -1,17 +1,17 @@
 [
   {
-    "id": "spec-kit",
-    "name": "GitHub Spec Kit",
-    "source": "github/spec-kit",
-    "description": "Specification-driven development workflow",
-    "guide": "docs/initializers/spec-kit.md"
-  },
-  {
     "id": "matt-pocock-skills",
     "name": "Matt Pocock's skills",
     "source": "mattpocock/skills",
-    "description": "Engineering skills and per-repository agent configuration",
+    "description": "Default engineering workflow entrypoint and per-repository agent configuration",
     "guide": "docs/initializers/matt-pocock-skills.md"
+  },
+  {
+    "id": "ponytail",
+    "name": "Ponytail",
+    "source": "DietrichGebert/ponytail",
+    "description": "Minimal complete changes, code reuse, and focused review skills",
+    "guide": "docs/initializers/ponytail.md"
   },
   {
     "id": "codegraph",

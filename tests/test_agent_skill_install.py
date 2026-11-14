@@ -26,11 +26,16 @@ class AgentSkillInstallTests(unittest.TestCase):
             self.assertTrue((installed / "source" / "skills" / "agent-skill-setup" / "WORKFLOW.md").is_file())
             self.assertEqual(list(installed.rglob("SKILL.md")), [installed / "SKILL.md"])
             self.assertTrue((installed / "source" / "docs" / "brownfield.md").is_file())
+            self.assertTrue((installed / "source" / "docs" / "initializers" / "ponytail.md").is_file())
+            self.assertFalse((installed / "source" / "docs" / "initializers" / "spec-kit.md").exists())
             result = subprocess.run(
                 [sys.executable, str(installed / "source" / "scripts" / "setup.py"), "list", "--project", str(project), "--agent", "codex"],
                 capture_output=True, text=True, check=True,
             )
             self.assertEqual(result.stdout.count("[x]"), 6)
+            self.assertTrue(result.stdout.startswith("1. [x] Matt Pocock's skills"))
+            self.assertIn("Ponytail (DietrichGebert/ponytail)", result.stdout)
+            self.assertNotIn("Spec Kit", result.stdout)
             self.assertEqual(list(project.iterdir()), [])
 
     def test_existing_skill_is_preserved(self) -> None:

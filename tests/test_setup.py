@@ -20,6 +20,230 @@ SPEC.loader.exec_module(SETUP)
 
 
 class SetupBehaviorTests(unittest.TestCase):
+    def test_agent_level_negations_cannot_reinclude_installed_skills(self) -> None:
+        for agent in SETUP.AGENTS:
+            with self.subTest(agent=agent), tempfile.TemporaryDirectory() as directory:
+                project = Path(directory)
+                subprocess.run(["git", "init", "-q", directory], check=True)
+                roots = {".agents", SETUP.AGENTS[agent]["dir"]}
+                artifacts = []
+                project_files = []
+                for root in roots:
+                    parent = project / root
+                    parent.mkdir()
+                    (parent / ".gitignore").write_text("/skills/\n!/skills/\n", encoding="utf-8")
+                    artifacts.append(f"{root}/skills/ponytail/templates/base.md")
+                    project_files.append(f"{root}/config.json")
+                SETUP.ignore_install_artifacts(project, agent, ["ponytail"], True)
+                self.assertFalse((project / ".gitignore").exists())
+                for root in roots:
+                    self.assertEqual((project / root / ".gitignore").read_text(), "/skills/\n!/skills/\n")
+                SETUP.ignore_install_artifacts(project, agent, ["ponytail"], False)
+                before = {p: p.read_bytes() for p in project.rglob(".gitignore")}
+                SETUP.ignore_install_artifacts(project, agent, ["ponytail"], False)
+                self.assertEqual(before, {p: p.read_bytes() for p in before})
+                for name in artifacts + project_files:
+                    path = project / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("content\n", encoding="utf-8")
+                ignored = subprocess.run(["git", "check-ignore", "--stdin"], cwd=project,
+                                         input="\n".join(artifacts + project_files) + "\n",
+                                         capture_output=True, text=True, check=True)
+                self.assertEqual(set(ignored.stdout.splitlines()), set(artifacts))
+
+    def test_agent_ignore_symlink_is_rejected_before_root_ignore_write(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as external:
+            project = Path(directory)
+            outside = Path(external) / "ignore"
+            outside.write_text("!/skills/\n", encoding="utf-8")
+            (project / ".agents").mkdir()
+            (project / ".agents" / ".gitignore").symlink_to(outside)
+            with patch.object(SETUP, "run") as run:
+                self.assertEqual(SETUP.main(["install", "--project", directory, "--only", "ui-ux-pro-max", "--yes"]), 1)
+                run.assert_not_called()
+            self.assertFalse((project / ".gitignore").exists())
+            self.assertEqual(outside.read_text(), "!/skills/\n")
+
+    def test_internal_skill_root_links_are_rejected_before_any_changes(self) -> None:
+        for agent in SETUP.AGENTS:
+            roots = {".agents", SETUP.AGENTS[agent]["dir"]}
+            for root in roots:
+                for link_parent in (False, True):
+                    with self.subTest(agent=agent, root=root, link_parent=link_parent), tempfile.TemporaryDirectory() as directory:
+                        project = Path(directory)
+                        actual = project / "local-skills"
+                        actual.mkdir()
+                        sentinel = actual / "project-rule.md"
+                        sentinel.write_text("keep\n", encoding="utf-8")
+                        link = project / root if link_parent else project / root / "skills"
+                        link.parent.mkdir(parents=True, exist_ok=True)
+                        link.symlink_to(actual, target_is_directory=True)
+                        ignore = project / ".gitignore"
+                        ignore.write_text("dist/\n", encoding="utf-8")
+                        with patch.object(SETUP, "run") as run:
+                            result = SETUP.main(["install", "--project", directory, "--agent", agent,
+                                                 "--only", "ui-ux-pro-max", "--yes"])
+                        self.assertEqual(result, 1)
+                        run.assert_not_called()
+                        self.assertEqual(ignore.read_text(), "dist/\n")
+                        self.assertTrue(link.is_symlink())
+                        self.assertEqual(sentinel.read_text(), "keep\n")
+                        self.assertEqual(list(actual.iterdir()), [sentinel])
+
+    def test_install_rules_override_existing_negations_and_remain_repeatable(self) -> None:
+        for negations in ("!/.agents/skills/\n!/skills-lock.json\n", "!*\n"):
+            with self.subTest(negations=negations), tempfile.TemporaryDirectory() as directory:
+                project = Path(directory)
+                subprocess.run(["git", "init", "-q", directory], check=True)
+                ignore = project / ".gitignore"
+                original = "dist/\n/.agents/skills/\n/skills-lock.json\n" + negations
+                ignore.write_text(original, encoding="utf-8")
+                SETUP.ignore_install_artifacts(project, "codex", ["ponytail"], True)
+                self.assertEqual(ignore.read_text(), original)
+                SETUP.ignore_install_artifacts(project, "codex", ["ponytail"], False)
+                first = ignore.read_bytes()
+                SETUP.ignore_install_artifacts(project, "codex", ["ponytail"], False)
+                self.assertEqual(ignore.read_bytes(), first)
+                self.assertTrue(first.startswith(original.encode()))
+                artifacts = [".agents/skills/ponytail/SKILL.md", ".agents/skills/ponytail/templates/base.md", "skills-lock.json"]
+                project_files = ["AGENTS.md", ".codex/config.toml", "templates/project.html"]
+                for name in artifacts + project_files:
+                    path = project / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("content\n", encoding="utf-8")
+                ignored = subprocess.run(["git", "check-ignore", "--stdin"], cwd=project,
+                                         input="\n".join(artifacts + project_files) + "\n",
+                                         capture_output=True, text=True, check=True)
+                self.assertEqual(set(ignored.stdout.splitlines()), set(artifacts))
+
+    def test_install_ignores_dependencies_but_keeps_project_changes_visible(self) -> None:
+        for agent in SETUP.AGENTS:
+            with self.subTest(agent=agent), tempfile.TemporaryDirectory() as directory:
+                project = Path(directory)
+                subprocess.run(["git", "init", "-q", directory], check=True)
+                (project / ".gitignore").write_text("dist/\n", encoding="utf-8")
+                artifacts = list(dict.fromkeys([
+                    ".agents/skills/design-taste-frontend/SKILL.md",
+                    f"{SETUP.AGENTS[agent]['dir']}/skills/design-taste-frontend/templates/base.md",
+                    "skills-lock.json",
+                ]))
+                project_files = ["AGENTS.md", "docs/agents/domain.md", ".codex/config.toml",
+                                 ".cursor/mcp.json", ".mcp.json", "templates/project.html", ".gitignore"]
+                def fake_install(target: Path, selected_agent: str, dry_run: bool) -> None:
+                    self.assertIn("/skills-lock.json", (target / ".gitignore").read_text())
+                    for name in artifacts + project_files[:-1]:
+                        path = target / name
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_text("content\n", encoding="utf-8")
+                args = ["install", "--project", directory, "--agent", agent, "--only", "taste-skill", "--yes"]
+                with patch.dict(SETUP.INSTALLERS, {"taste-skill": fake_install}):
+                    self.assertEqual(SETUP.main(args), 0)
+                    first = (project / ".gitignore").read_bytes()
+                    self.assertEqual(SETUP.main(args), 0)
+                    self.assertEqual((project / ".gitignore").read_bytes(), first)
+                ignored = subprocess.run(["git", "check-ignore", "--stdin"], cwd=project,
+                                         input="\n".join(artifacts + project_files) + "\n",
+                                         capture_output=True, text=True, check=True)
+                self.assertEqual(set(ignored.stdout.splitlines()), set(artifacts))
+                self.assertTrue(first.startswith(b"dist/\n"))
+
+    def test_failed_install_still_ignores_partial_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            def fail_install(target: Path, agent: str, dry_run: bool) -> None:
+                path = SETUP.skill_path(target, agent, "design-taste-frontend")
+                path.parent.mkdir(parents=True)
+                path.write_text("partial install\n", encoding="utf-8")
+                raise RuntimeError("upstream failed")
+            with patch.dict(SETUP.INSTALLERS, {"taste-skill": fail_install}):
+                self.assertEqual(SETUP.main(["install", "--project", directory, "--only", "taste-skill", "--yes"]), 1)
+            self.assertIn("/.agents/skills/", (project / ".gitignore").read_text())
+
+    def test_skill_only_preflight_rejects_gitignore_symlink_before_install(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as external:
+            project = Path(directory)
+            outside = Path(external) / "ignore"
+            outside.write_text("dist/\n", encoding="utf-8")
+            (project / ".gitignore").symlink_to(outside)
+            with patch.dict(SETUP.INSTALLERS, {"taste-skill": lambda *args: self.fail("Installer must not run")}):
+                self.assertEqual(SETUP.main(["install", "--project", directory, "--only", "taste-skill", "--yes"]), 1)
+            self.assertEqual(outside.read_text(), "dist/\n")
+
+    def test_removed_spec_kit_selection_is_rejected_without_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "install", "--project", directory, "--only", "spec-kit", "--yes"],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("Unknown catalog item: spec-kit", result.stderr)
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_ponytail_only_dry_run_supports_each_agent(self) -> None:
+        for agent in SETUP.AGENTS:
+            with self.subTest(agent=agent), tempfile.TemporaryDirectory() as directory:
+                result = subprocess.run(
+                    [sys.executable, str(SCRIPT), "install", "--project", directory, "--agent", agent,
+                     "--only", "ponytail", "--yes", "--dry-run"],
+                    capture_output=True, text=True, check=True,
+                )
+                self.assertIn(f"add DietrichGebert/ponytail --skill '*' --agent {agent} --yes", result.stdout)
+                self.assertNotIn("add mattpocock/skills", result.stdout)
+                self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_ponytail_upstream_discovery_requires_core_skill(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch.object(SETUP, "require"), \
+             patch.object(SETUP, "capture_npx", return_value="│    ponytail\n│    ponytail-review\n") as capture:
+            self.assertEqual(SETUP.pack_skill_names(Path(directory), "ponytail"), ["ponytail", "ponytail-review"])
+            self.assertIn("DietrichGebert/ponytail", capture.call_args.args[0])
+            capture.return_value = "No skills found\n"
+            with self.assertRaisesRegex(RuntimeError, "Could not identify"):
+                SETUP.pack_skill_names(Path(directory), "ponytail")
+
+    def test_ponytail_recovery_preserves_customizations_and_is_repeatable(self) -> None:
+        for agent in SETUP.AGENTS:
+            with self.subTest(agent=agent), tempfile.TemporaryDirectory() as directory:
+                project = Path(directory)
+                existing = SETUP.skill_path(project, agent, "ponytail")
+                existing.parent.mkdir(parents=True)
+                existing.write_text("project customization\n", encoding="utf-8")
+                sources = {"ponytail": {"source": "https://github.com/dietrichgebert/ponytail.git/"}}
+                lock = project / "skills-lock.json"
+                lock.write_text(json.dumps({"skills": sources}), encoding="utf-8")
+                def fake_run(command: list[str], target: Path, dry_run: bool) -> None:
+                    self.assertEqual(command[command.index("--skill") + 1:command.index("--agent")], ["ponytail-review"])
+                    installed = SETUP.skill_path(target, agent, "ponytail-review")
+                    installed.parent.mkdir(parents=True)
+                    installed.write_text("upstream review\n", encoding="utf-8")
+                    sources["ponytail-review"] = {"source": "DietrichGebert/ponytail"}
+                    lock.write_text(json.dumps({"skills": sources}), encoding="utf-8")
+                with patch.object(SETUP, "pack_skill_names", return_value=["ponytail", "ponytail-review"]), \
+                     patch.object(SETUP, "run", side_effect=fake_run) as run, patch.object(SETUP, "require"), ExitStack() as stack:
+                    plan = SETUP.prepare_selected(project, agent, ["ponytail"], False, stack)["ponytail"]
+                    SETUP.install_skill_pack(project, agent, False, "ponytail", plan)
+                    plan = SETUP.prepare_selected(project, agent, ["ponytail"], False, stack)["ponytail"]
+                    self.assertEqual(plan, [])
+                    SETUP.install_skill_pack(project, agent, False, "ponytail", plan)
+                    run.assert_called_once()
+                self.assertEqual(existing.read_text(encoding="utf-8"), "project customization\n")
+
+    def test_ponytail_conflict_stops_install_before_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            custom = SETUP.skill_path(project, "codex", "ponytail-review")
+            custom.parent.mkdir(parents=True)
+            custom.write_text("team review\n", encoding="utf-8")
+            with patch.object(SETUP, "pack_skill_names", return_value=["ponytail", "ponytail-review"]), \
+                 patch.object(SETUP, "run") as run:
+                self.assertEqual(SETUP.main(["install", "--project", directory, "--only", "ponytail", "--yes"]), 1)
+                run.assert_not_called()
+            self.assertEqual(custom.read_text(encoding="utf-8"), "team review\n")
+
+    def test_ponytail_incomplete_install_is_not_reported_complete(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch.object(SETUP, "run"), patch.object(SETUP, "require"):
+            with self.assertRaisesRegex(RuntimeError, "not all installed"):
+                SETUP.install_skill_pack(Path(directory), "codex", False, "ponytail", ["ponytail", "ponytail-review"])
+
     def test_default_dry_run_lists_every_item_without_writing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)
@@ -29,8 +253,9 @@ class SetupBehaviorTests(unittest.TestCase):
                 text=True,
                 check=True,
             )
-            self.assertIn("Selected: spec-kit, matt-pocock-skills, codegraph, archify, ui-ux-pro-max, taste-skill", result.stdout)
-            self.assertIn("specify init --here", result.stdout)
+            self.assertIn("Selected: matt-pocock-skills, ponytail, codegraph, archify, ui-ux-pro-max, taste-skill", result.stdout)
+            self.assertNotIn("specify", result.stdout)
+            self.assertIn("add DietrichGebert/ponytail --skill", result.stdout)
             self.assertIn("uipro init --ai codex", result.stdout)
             self.assertIn("--skill design-taste-frontend", result.stdout)
             self.assertEqual(list(project.iterdir()), [])
@@ -59,21 +284,6 @@ class SetupBehaviorTests(unittest.TestCase):
             self.assertIn("uipro init --ai codex", result.stdout)
             self.assertIn("--skill design-taste-frontend", result.stdout)
             self.assertNotIn("specify init", result.stdout)
-
-    def test_registered_spec_kit_integration_uses_recovery_path(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            project = Path(directory)
-            metadata = project / ".specify" / "integration.json"
-            metadata.parent.mkdir()
-            metadata.write_text(json.dumps({"installed_integrations": ["codex"]}), encoding="utf-8")
-            result = subprocess.run(
-                [sys.executable, str(SCRIPT), "install", "--project", directory, "--only", "spec-kit", "--yes", "--dry-run"],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            self.assertIn("specify integration upgrade codex", result.stdout)
-            self.assertNotIn("specify integration install codex", result.stdout)
 
     def test_gitignore_update_preserves_existing_rules_and_is_repeatable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -109,118 +319,21 @@ class SetupBehaviorTests(unittest.TestCase):
             self.assertIn("Existing codex skills (1): existing-team-skill", result.stdout)
             self.assertIn("docs/brownfield.md", result.stdout)
 
-    def test_partial_spec_kit_project_is_not_marked_ready(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            project = Path(directory)
-            skill = project / ".agents" / "skills" / "speckit-specify" / "SKILL.md"
-            skill.parent.mkdir(parents=True)
-            skill.write_text("existing integration\n", encoding="utf-8")
-            self.assertEqual(SETUP.status(project, "codex", "spec-kit"), "integration files exist; project missing")
-            result = subprocess.run(
-                [sys.executable, str(SCRIPT), "install", "--project", directory, "--only", "spec-kit", "--yes", "--dry-run"],
-                capture_output=True, text=True,
-            )
-            self.assertEqual(result.returncode, 1)
-            self.assertIn("Restore .specify/", result.stderr)
-            self.assertFalse((project / ".specify").exists())
-
-    def test_spec_kit_manifest_missing_one_skill_uses_upgrade(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            project = Path(directory)
-            manifest = project / ".specify" / "integrations" / "codex.manifest.json"
-            manifest.parent.mkdir(parents=True)
-            manifest.write_text(json.dumps({"files": {
-                ".agents/skills/speckit-specify/SKILL.md": "hash",
-                ".agents/skills/speckit-plan/SKILL.md": "hash",
-            }}), encoding="utf-8")
-            shared = project / ".specify" / "integrations" / "speckit.manifest.json"
-            shared.write_text(json.dumps({"files": {".specify/templates/spec-template.md": "hash"}}), encoding="utf-8")
-            (project / ".specify" / "templates").mkdir()
-            (project / ".specify" / "templates" / "spec-template.md").write_text("template\n", encoding="utf-8")
-            (project / ".specify" / "integration.json").write_text(json.dumps({"installed_integrations": ["codex"]}), encoding="utf-8")
-            primary = project / ".agents" / "skills" / "speckit-specify" / "SKILL.md"
-            primary.parent.mkdir(parents=True)
-            primary.write_text("existing\n", encoding="utf-8")
-            self.assertNotEqual(SETUP.status(project, "codex", "spec-kit"), "ready")
-            result = subprocess.run(
-                [sys.executable, str(SCRIPT), "install", "--project", directory, "--only", "spec-kit", "--yes", "--dry-run"],
-                capture_output=True, text=True, check=True,
-            )
-            self.assertIn("specify integration upgrade codex", result.stdout)
-
-    def test_spec_kit_missing_shared_template_uses_upgrade(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            project = Path(directory)
-            manifests = project / ".specify" / "integrations"
-            manifests.mkdir(parents=True)
-            (manifests / "speckit.manifest.json").write_text(json.dumps({"files": {".specify/templates/plan-template.md": "hash"}}), encoding="utf-8")
-            (manifests / "codex.manifest.json").write_text(json.dumps({"files": {".agents/skills/speckit-specify/SKILL.md": "hash"}}), encoding="utf-8")
-            (project / ".specify" / "integration.json").write_text(json.dumps({"installed_integrations": ["codex"]}), encoding="utf-8")
-            primary = project / ".agents" / "skills" / "speckit-specify" / "SKILL.md"
-            primary.parent.mkdir(parents=True)
-            primary.write_text("existing\n", encoding="utf-8")
-            self.assertNotEqual(SETUP.status(project, "codex", "spec-kit"), "ready")
-            result = subprocess.run(
-                [sys.executable, str(SCRIPT), "install", "--project", directory, "--only", "spec-kit", "--yes", "--dry-run"],
-                capture_output=True, text=True, check=True,
-            )
-            self.assertIn("specify integration upgrade codex", result.stdout)
-
-    def test_spec_kit_missing_registration_uses_install_even_with_all_files(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            project = Path(directory)
-            manifests = project / ".specify" / "integrations"
-            manifests.mkdir(parents=True)
-            (manifests / "speckit.manifest.json").write_text(json.dumps({"files": {".specify/templates/plan-template.md": "hash"}}), encoding="utf-8")
-            (manifests / "codex.manifest.json").write_text(json.dumps({"files": {".agents/skills/speckit-specify/SKILL.md": "hash"}}), encoding="utf-8")
-            template = project / ".specify" / "templates" / "plan-template.md"
-            template.parent.mkdir()
-            template.write_text("existing template\n", encoding="utf-8")
-            primary = project / ".agents" / "skills" / "speckit-specify" / "SKILL.md"
-            primary.parent.mkdir(parents=True)
-            primary.write_text("existing skill\n", encoding="utf-8")
-            self.assertNotEqual(SETUP.status(project, "codex", "spec-kit"), "ready")
-            result = subprocess.run(
-                [sys.executable, str(SCRIPT), "install", "--project", directory, "--only", "spec-kit", "--yes", "--dry-run"],
-                capture_output=True, text=True, check=True,
-            )
-            self.assertIn("specify integration install codex", result.stdout)
-
-    def test_any_spec_kit_remnant_blocks_forced_init_without_project_directory(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            project = Path(directory)
-            remnant = project / ".agents" / "skills" / "speckit-plan" / "SKILL.md"
-            remnant.parent.mkdir(parents=True)
-            remnant.write_text("old plan skill\n", encoding="utf-8")
-            with ExitStack() as stack, self.assertRaisesRegex(RuntimeError, "project directory is missing"):
-                SETUP.prepare_selected(project, "codex", ["spec-kit"], False, stack)
-            self.assertEqual(remnant.read_text(encoding="utf-8"), "old plan skill\n")
-
-    def test_first_spec_kit_run_uses_uv_runner_when_tool_bin_is_not_on_path(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            calls: list[list[str]] = []
-            with patch.object(SETUP.shutil, "which", side_effect=lambda name: None if name == "specify" else "/usr/bin/uv"), \
-                 patch.object(SETUP, "run", side_effect=lambda command, project, dry_run: calls.append(command)):
-                SETUP.install_spec_kit(Path(directory), "codex", True)
-            self.assertIn(["uv", "tool", "install", "specify-cli"], calls)
-            self.assertEqual(calls[-1][:6], ["uv", "tool", "run", "--from", "specify-cli", "specify"])
-            self.assertEqual(calls[-1][6:8], ["init", "--here"])
-
     def test_matt_preflight_blocks_existing_unowned_skill_before_any_write(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)
             custom = project / ".agents" / "skills" / "triage" / "SKILL.md"
             custom.parent.mkdir(parents=True)
             custom.write_text("team triage\n", encoding="utf-8")
-            with patch.object(SETUP, "matt_skill_names", return_value=["setup-matt-pocock-skills", "triage"]), ExitStack() as stack:
+            with patch.object(SETUP, "pack_skill_names", return_value=["setup-matt-pocock-skills", "triage"]), ExitStack() as stack:
                 with self.assertRaisesRegex(RuntimeError, "name conflicts"):
                     SETUP.prepare_selected(project, "codex", ["matt-pocock-skills"], False, stack)
             self.assertEqual(custom.read_text(encoding="utf-8"), "team triage\n")
             self.assertFalse((project / ".specify").exists())
 
     def test_matt_lock_source_accepts_github_url_form(self) -> None:
-        self.assertTrue(SETUP.is_matt_source("https://github.com/mattpocock/skills.git/"))
-        self.assertFalse(SETUP.is_matt_source("other-team/skills"))
+        self.assertTrue(SETUP.matches_source("https://github.com/mattpocock/skills.git/", "mattpocock/skills"))
+        self.assertFalse(SETUP.matches_source("other-team/skills", "mattpocock/skills"))
 
     def test_matt_recovery_installs_only_missing_pack_members(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -229,7 +342,7 @@ class SetupBehaviorTests(unittest.TestCase):
             existing.parent.mkdir(parents=True)
             existing.write_text("project customization\n", encoding="utf-8")
             (project / "skills-lock.json").write_text(json.dumps({"skills": {"setup-matt-pocock-skills": {"source": "mattpocock/skills"}}}), encoding="utf-8")
-            with patch.object(SETUP, "matt_skill_names", return_value=["setup-matt-pocock-skills", "triage"]), ExitStack() as stack:
+            with patch.object(SETUP, "pack_skill_names", return_value=["setup-matt-pocock-skills", "triage"]), ExitStack() as stack:
                 plan = SETUP.prepare_selected(project, "codex", ["matt-pocock-skills"], False, stack)["matt-pocock-skills"]
             self.assertEqual(plan, ["triage"])
             commands: list[list[str]] = []
@@ -239,7 +352,7 @@ class SetupBehaviorTests(unittest.TestCase):
                 installed.parent.mkdir(parents=True)
                 installed.write_text("upstream triage\n", encoding="utf-8")
             with patch.object(SETUP, "run", side_effect=fake_run):
-                SETUP.install_matt(project, "codex", False, plan)
+                SETUP.install_skill_pack(project, "codex", False, "matt-pocock-skills", plan)
             self.assertEqual(existing.read_text(encoding="utf-8"), "project customization\n")
             self.assertEqual(commands[0][commands[0].index("--skill") + 1], "triage")
             self.assertNotIn("setup-matt-pocock-skills", commands[0])
