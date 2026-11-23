@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from ruamel.yaml import YAML
+
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "scripts" / "install-agent-skill.py"
@@ -23,6 +25,9 @@ class AgentSkillInstallTests(unittest.TestCase):
             )
             installed = skills_dir / "agent-skill-setup"
             self.assertIn("name: agent-skill-setup", (installed / "SKILL.md").read_text(encoding="utf-8"))
+            self.assertIs(YAML().load(installed / "agents" / "openai.yaml")["policy"]["allow_implicit_invocation"], True)
+            self.assertTrue((installed / "source" / "scripts" / "skill_visibility.py").is_file())
+            self.assertTrue((installed / "source" / "requirements.txt").is_file())
             self.assertTrue((installed / "source" / "skills" / "agent-skill-setup" / "WORKFLOW.md").is_file())
             self.assertEqual(list(installed.rglob("SKILL.md")), [installed / "SKILL.md"])
             self.assertTrue((installed / "source" / "docs" / "brownfield.md").is_file())

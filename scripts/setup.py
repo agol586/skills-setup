@@ -15,6 +15,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from skill_visibility import check_visibility_paths, enable_model_invocation, yaml_parser
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = json.loads((ROOT / "catalog.json").read_text(encoding="utf-8"))
@@ -243,10 +244,14 @@ def prepare_selected(project: Path, agent: str, selected: list[str], dry_run: bo
         check_local_skill_root(project, agent)
         for directory in dict.fromkeys((".agents", AGENTS[agent]["dir"])):
             check_local_gitignore(project / directory)
+        yaml_parser()
+    visibility = []
     if "codegraph" in selected:
         check_local_graph_index(project)
         check_local_agent_config(project)
     for item_id, name in (("archify", "archify"), ("taste-skill", "design-taste-frontend")):
+        if item_id in selected:
+            visibility.append(skill_dir(project, agent, name))
         if item_id in selected and skill_dir(project, agent, name).is_symlink():
             raise RuntimeError(f"Selected skill path is a symlink: {skill_dir(project, agent, name)}. Review its destination before project-local installation.")
     for item_id in PACKS:
@@ -254,6 +259,7 @@ def prepare_selected(project: Path, agent: str, selected: list[str], dry_run: bo
             continue
         item = ITEMS[item_id]
         names = pack_skill_names(project, item_id)
+        visibility.extend(skill_dir(project, agent, name) for name in names)
         sources = locked_skill_sources(project)
         conflicts = [name for name in names if path_present(skill_dir(project, agent, name)) and not matches_source(sources.get(name, ""), item["source"])]
         if conflicts:
@@ -290,8 +296,12 @@ def prepare_selected(project: Path, agent: str, selected: list[str], dry_run: bo
             paths = ", ".join(str(skill_dir(project, agent, name)) for name in conflicts)
             raise RuntimeError(f"UI UX Pro Max name conflicts with existing project skills: {paths}. Preserve or rename the existing skills before installing this pack.")
         plans["ui-ux-pro-max"] = (stage_skills, names)
+        visibility.extend(skill_dir(project, agent, name) for name in names)
         missing = [name for name in names if not skill_path(project, agent, name).exists()]
         print(f"UI UX Pro Max preflight: {len(names)} bundled skills, {len(missing)} missing, no name conflicts.")
+    for skill in visibility:
+        check_visibility_paths(skill, project)
+    plans["visibility"] = visibility
     return plans
 
 
@@ -495,9 +505,11 @@ def main(argv: list[str] | None = None) -> int:
                     install_ui_ux_pro_max(args.project, args.agent, args.dry_run, plans.get(item_id))
                 else:
                     INSTALLERS[item_id](args.project, args.agent, args.dry_run)
+            if any(item_id != "codegraph" for item_id in selected):
+                enable_model_invocation(plans.get("visibility", []), args.project, args.dry_run)
         print("Machine steps complete. Finish the selected initializer guides and review the target project's docs and diff.")
         return 0
-    except (RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
+    except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
         print(f"Setup stopped: {exc}", file=sys.stderr)
         return 1
 

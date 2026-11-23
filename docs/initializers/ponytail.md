@@ -2,7 +2,7 @@
 
 Source: [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail). Official references: [Skills CLI installation](https://github.com/DietrichGebert/ponytail/blob/main/INSTALL.md#skills-cli) and [core skill](https://github.com/DietrichGebert/ponytail/blob/main/skills/ponytail/SKILL.md).
 
-Install the upstream skill pack into the selected agent's project directory with the Skills CLI. The installer discovers the live pack, checks ownership through `skills-lock.json`, and adds only missing skills. It preserves existing files and stops on unrelated same-name skills. The pack includes `ponytail` and companions for review, audit, debt, gain, and help.
+Install the upstream skill pack into the selected agent's project directory with the Skills CLI. The installer discovers the live pack, checks ownership through `skills-lock.json`, and adds only missing skills. It preserves existing instructions and stops on unrelated same-name skills; the setup workflow normalizes invocation metadata for model selection. The pack includes `ponytail` and companions for review, audit, debt, gain, and help.
 
 This path installs skills only. Plugin hooks, persistent modes, and the Claude Code band are not configured. Keep the project's existing agent instructions; do not replace them with upstream `AGENTS.md`.
 

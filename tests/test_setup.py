@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "setup.py"
+sys.path.insert(0, str(SCRIPT.parent))
 SPEC = importlib.util.spec_from_file_location("skills_setup", SCRIPT)
 assert SPEC and SPEC.loader
 SETUP = importlib.util.module_from_spec(SPEC)
@@ -20,6 +21,25 @@ SPEC.loader.exec_module(SETUP)
 
 
 class SetupBehaviorTests(unittest.TestCase):
+    def test_reinstall_enables_existing_selected_pack_without_changing_other_skills(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            for name in ("ponytail", "custom"):
+                path = SETUP.skill_path(project, "codex", name)
+                path.parent.mkdir(parents=True)
+                path.write_text(f"---\nname: {name}\ndescription: Example\ndisable-model-invocation: true\n---\nBody\n")
+            custom = SETUP.skill_path(project, "codex", "custom")
+            original = custom.read_bytes()
+            (project / "skills-lock.json").write_text(json.dumps({"skills": {"ponytail": {"source": "DietrichGebert/ponytail"}}}))
+            with patch.object(SETUP, "pack_skill_names", return_value=["ponytail"]), patch.object(SETUP, "run") as run:
+                self.assertEqual(SETUP.main(["install", "--project", directory, "--only", "ponytail", "--yes"]), 0)
+                run.assert_not_called()
+            selected = SETUP.skill_path(project, "codex", "ponytail")
+            self.assertNotIn("disable-model-invocation", selected.read_text())
+            self.assertIn("allow_implicit_invocation: true", (selected.parent / "agents" / "openai.yaml").read_text())
+            self.assertEqual(custom.read_bytes(), original)
+            self.assertFalse((custom.parent / "agents").exists())
+
     def test_agent_level_negations_cannot_reinclude_installed_skills(self) -> None:
         for agent in SETUP.AGENTS:
             with self.subTest(agent=agent), tempfile.TemporaryDirectory() as directory:
@@ -135,6 +155,9 @@ class SetupBehaviorTests(unittest.TestCase):
                         path = target / name
                         path.parent.mkdir(parents=True, exist_ok=True)
                         path.write_text("content\n", encoding="utf-8")
+                    manifest = SETUP.skill_path(target, selected_agent, "design-taste-frontend")
+                    manifest.parent.mkdir(parents=True, exist_ok=True)
+                    manifest.write_text("---\nname: design-taste-frontend\ndescription: Design\ndisable-model-invocation: true\n---\nKeep instructions.\n", encoding="utf-8")
                 args = ["install", "--project", directory, "--agent", agent, "--only", "taste-skill", "--yes"]
                 with patch.dict(SETUP.INSTALLERS, {"taste-skill": fake_install}):
                     self.assertEqual(SETUP.main(args), 0)

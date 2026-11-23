@@ -8,6 +8,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from skill_visibility import enable_model_invocation
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL_NAME = "agent-skill-setup"
@@ -34,6 +35,7 @@ def install(agent: str, skills_dir: Path) -> Path:
         "# Set up a target project\n\n"
         "Read the [full workflow](source/skills/agent-skill-setup/WORKFLOW.md) before acting. "
         "The catalog, initializer guides, and installer are packaged in `source/` beside this file. "
+        "Install the Python dependencies from `source/requirements.txt` in your chosen Python environment before a real installation. "
         "Resolve this skill's directory and run `source/scripts/setup.py` by absolute path; "
         "resolve relative script paths in the workflow against `source/`. "
         "The installer itself executes project commands from the target root. "
@@ -49,9 +51,12 @@ def install(agent: str, skills_dir: Path) -> Path:
         (packaged / "skills" / SKILL_NAME).mkdir(parents=True)
         shutil.copy2(source_root / "catalog.json", packaged / "catalog.json")
         shutil.copy2(source_root / "scripts" / "setup.py", packaged / "scripts" / "setup.py")
+        shutil.copy2(source_root / "scripts" / "skill_visibility.py", packaged / "scripts" / "skill_visibility.py")
+        shutil.copy2(source_root / "requirements.txt", packaged / "requirements.txt")
         shutil.copy2(source_skill, packaged / "skills" / SKILL_NAME / "WORKFLOW.md")
         shutil.copytree(source_root / "docs", packaged / "docs")
         (staged / "SKILL.md").write_text(wrapper, encoding="utf-8")
+        enable_model_invocation([staged], staged, False)
         staged.rename(destination)
     return destination
 
@@ -63,7 +68,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         destination = install(args.agent, args.skills_dir or DEFAULT_SKILLS_DIR[args.agent])
-    except (FileExistsError, OSError, ValueError) as exc:
+    except (FileExistsError, OSError, RuntimeError, ValueError) as exc:
         parser.exit(1, f"Skill installation stopped: {exc}\n")
     print(f"Installed {SKILL_NAME} for {args.agent}: {destination}")
     print("Open a new agent session if the skill does not appear immediately, then invoke agent-skill-setup with a target project path.")
