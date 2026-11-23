@@ -1,6 +1,6 @@
 # Agent skills setup
 
-This repository helps a coding agent install and configure a selected set of skills in an **existing project**. It ships an agent workflow, a small Python installer, and a guide for each built-in source. It does not vendor the upstream skills.
+This repository provides `agent-skill-setup`, a skill for batch installing or updating selected skills in an **existing project**, making them available to the agent, completing project-specific initialization, and keeping downloaded dependencies out of Git. It ships an agent workflow, a small Python installer, and a guide for each built-in source. It does not vendor the upstream skills.
 
 The local entrypoint needs Python 3 and the YAML dependency in `requirements.txt` (install it in your chosen Python environment). Matt Pocock's skills, Ponytail, Archify, UI UX Pro Max, and Taste Skill use Node.js/npm; CodeGraph uses its CLI or npm for a first-time CLI install. Upstream commands access the network during installation.
 
@@ -24,6 +24,8 @@ You can give the agent the same task directly: “Clone `https://github.com/agol
 The command installs `agent-skill-setup` under your personal skills directory: [Codex](https://developers.openai.com/codex/skills) uses `~/.agents/skills/`, [Claude Code](https://code.claude.com/docs/en/skills) uses `~/.claude/skills/`, and [Cursor](https://cursor.com/docs/skills) uses `~/.cursor/skills/`. It includes this repository's catalog, installer, and initialization guides with the entry skill, so the agent can run the workflow from another project. The packaged entry skill explicitly enables implicit invocation. It leaves an existing same-name installation in place; review that copy before replacing it. If a new skill is not visible, start a new agent session.
 
 Open the target project in your agent and give it the target path. In Codex, mention `$agent-skill-setup`; in Claude Code or Cursor, invoke `/agent-skill-setup`. For example: “Use agent-skill-setup to install the built-in skills in `/path/to/project`; show me the all-selected checklist first.” Installing this **entry skill** makes the workflow available to the agent; the six catalog sources are installed into the target project only after you make that selection.
+
+For upstream updates, ask the agent to use `agent-skill-setup` to update the selected catalog sources and follow [the update workflow](docs/updating.md). The `install` command repairs missing files and invocation settings; it does not replace existing skill content. The update workflow stages current upstream files, backs up the selected dependencies, replaces only that selection, and rechecks initialization.
 
 Alternatively, give your agent this repository URL and the target project path, then ask it to follow [the setup skill](skills/agent-skill-setup/SKILL.md) from the checkout. The agent should present the catalog as a checklist with every item selected, let you deselect items, run the installer for your selection, and finish the project-specific configuration and documentation review.
 
@@ -52,7 +54,20 @@ For an established or already deployed project, use the [established-project wor
 | UI UX Pro Max | [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) | Run `uipro init` for the selected agent; verify its search script and align recommendations with existing design docs. |
 | Taste Skill | [Leonxlnx/taste-skill](https://github.com/Leonxlnx/taste-skill) | Install the default `design-taste-frontend` variant and infer its design dials from the existing UI. |
 
-The item list and guide paths live in [catalog.json](catalog.json). The guides under [docs/initializers](docs/initializers) record each upstream initialization workflow and the project evidence needed to choose a branch. Keep shared configuration such as `AGENTS.md` and `docs/agents/` reviewable. Installed skills and bundled templates, scripts, references, and assets are local dependencies and must be ignored. The installer adds `.gitignore` rules for `.agents/skills/`, the selected agent's skills directory, `skills-lock.json` when using the Skills CLI, and generated CodeGraph data. It writes these rules after preflight and before installation, so partial installs remain ignored, and reasserts them after any existing negation rules. Existing agent-level `.gitignore` files also receive `/skills/` so their higher-priority rules cannot reinclude installed skills. Skill roots and their parent agent directories must be real directories, including the shared `.agents/skills/` root; symlinked layouts are rejected before installation. Keep project-specific customization in tracked docs/configuration, and document the bootstrap command for a fresh checkout. Commit project source, agent/MCP configuration, docs, diagrams, and `.gitignore`; do not ignore whole agent directories or project template directories. Already tracked generated files need an explicit, reviewed `git rm --cached` to stop tracking them while retaining local copies; the installer does not modify the Git index.
+The item list and guide paths live in [catalog.json](catalog.json). The guides under [docs/initializers](docs/initializers) record each upstream initialization workflow and the project evidence needed to choose a branch. Keep shared configuration such as `AGENTS.md` and `docs/agents/` reviewable. Installed skills and bundled templates, scripts, references, and assets are local dependencies and must be ignored. The installer adds `.gitignore` rules for `.agents/skills/`, the selected agent's skills directory, `skills-lock.json` when using the Skills CLI, generated CodeGraph data, and local update backups. It writes these rules after preflight and before installation, so partial installs remain ignored, and reasserts them after any existing negation rules. Existing agent-level `.gitignore` files also receive `/skills/` so their higher-priority rules cannot reinclude installed skills. Skill roots and their parent agent directories must be real directories, including the shared `.agents/skills/` root; symlinked layouts are rejected before installation. Keep project-specific customization in tracked docs/configuration, and document the bootstrap command for a fresh checkout. Commit project source, agent/MCP configuration, docs, diagrams, and `.gitignore`; do not ignore whole agent directories or project template directories. Already tracked generated files need an explicit, reviewed `git rm --cached` to stop tracking them while retaining local copies; the installer does not modify the Git index.
+
+The exact target-project exclusions are listed in [the Git policy](docs/git-hygiene.md):
+
+| Ignore rule | Applies to |
+| --- | --- |
+| `/.agents/skills/` | Any downloaded skill selection; includes bundled templates, scripts, references, and assets |
+| `/.claude/skills/` | Claude Code installations |
+| `/.cursor/skills/` | Cursor installations |
+| `/skills-lock.json` | Skills CLI installation state |
+| `/.codegraph/` | CodeGraph local data |
+| `/.skills-setup/backups/` | Prior skill payloads and installation-state backups |
+
+A successful script run only prepares files, invocation policy, and automated tool checks. The agent must also finish every selected initializer and confirm host availability. Report each source's installed/updated, available, initialized, and ignored status, with evidence. Pending restarts or missing project preferences remain pending rather than being reported as complete.
 
 Run local checks with `python3 -m unittest discover -s tests -v`.
 

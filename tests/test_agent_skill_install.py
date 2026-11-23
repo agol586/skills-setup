@@ -31,6 +31,8 @@ class AgentSkillInstallTests(unittest.TestCase):
             self.assertTrue((installed / "source" / "skills" / "agent-skill-setup" / "WORKFLOW.md").is_file())
             self.assertEqual(list(installed.rglob("SKILL.md")), [installed / "SKILL.md"])
             self.assertTrue((installed / "source" / "docs" / "brownfield.md").is_file())
+            self.assertTrue((installed / "source" / "docs" / "updating.md").is_file())
+            self.assertTrue((installed / "source" / "docs" / "git-hygiene.md").is_file())
             self.assertTrue((installed / "source" / "docs" / "initializers" / "ponytail.md").is_file())
             self.assertFalse((installed / "source" / "docs" / "initializers" / "spec-kit.md").exists())
             result = subprocess.run(

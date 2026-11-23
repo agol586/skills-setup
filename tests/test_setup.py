@@ -146,6 +146,7 @@ class SetupBehaviorTests(unittest.TestCase):
                     ".agents/skills/design-taste-frontend/SKILL.md",
                     f"{SETUP.AGENTS[agent]['dir']}/skills/design-taste-frontend/templates/base.md",
                     "skills-lock.json",
+                    ".skills-setup/backups/example-run/skills-lock.json",
                 ]))
                 project_files = ["AGENTS.md", "docs/agents/domain.md", ".codex/config.toml",
                                  ".cursor/mcp.json", ".mcp.json", "templates/project.html", ".gitignore"]
@@ -169,6 +170,21 @@ class SetupBehaviorTests(unittest.TestCase):
                                          capture_output=True, text=True, check=True)
                 self.assertEqual(set(ignored.stdout.splitlines()), set(artifacts))
                 self.assertTrue(first.startswith(b"dist/\n"))
+
+    def test_codegraph_ignore_is_rooted_and_does_not_hide_unselected_skills(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            subprocess.run(["git", "init", "-q", directory], check=True)
+            SETUP.ignore_install_artifacts(project, "codex", ["codegraph"], False)
+            paths = [".codegraph/codegraph.db", "docs/.codegraph/example.md", ".agents/skills/custom/SKILL.md",
+                     ".codex/config.toml", "docs/agents/domain.md", "templates/project.html"]
+            for name in paths:
+                path = project / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("content\n", encoding="utf-8")
+            result = subprocess.run(["git", "check-ignore", "--stdin"], cwd=project,
+                                    input="\n".join(paths) + "\n", capture_output=True, text=True, check=True)
+            self.assertEqual(result.stdout.splitlines(), [".codegraph/codegraph.db"])
 
     def test_failed_install_still_ignores_partial_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

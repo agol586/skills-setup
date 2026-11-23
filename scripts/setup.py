@@ -338,12 +338,13 @@ def ignore_install_artifacts(project: Path, agent: str, selected: list[str], dry
     if any(item_id != "codegraph" for item_id in selected):
         # Skills CLI keeps canonical copies in .agents, with agent-specific links.
         entries.append("/.agents/skills/")
+        entries.append("/.skills-setup/backups/")
         if AGENTS[agent]["dir"] != ".agents":
             entries.append(f"/{AGENTS[agent]['dir']}/skills/")
     if any(item_id in (*PACKS, "archify", "taste-skill") for item_id in selected):
         entries.append("/skills-lock.json")
     if "codegraph" in selected:
-        entries.append(".codegraph/")
+        entries.append("/.codegraph/")
     if entries:
         ensure_gitignore(project, entries, dry_run)
     if any(item_id != "codegraph" for item_id in selected):
@@ -390,7 +391,7 @@ def install_codegraph(project: Path, agent: str, dry_run: bool) -> None:
         if not database.is_file() or database.stat().st_size == 0:
             raise RuntimeError("CodeGraph did not create a usable project index database.")
         run(["codegraph", "status"], project, dry_run)
-    ensure_gitignore(project, [".codegraph/"], dry_run)
+    ensure_gitignore(project, ["/.codegraph/"], dry_run)
     print("Next: restart the agent for its MCP integration, then verify CodeGraph can explore this project.")
 
 
@@ -507,7 +508,10 @@ def main(argv: list[str] | None = None) -> int:
                     INSTALLERS[item_id](args.project, args.agent, args.dry_run)
             if any(item_id != "codegraph" for item_id in selected):
                 enable_model_invocation(plans.get("visibility", []), args.project, args.dry_run)
-        print("Machine steps complete. Finish the selected initializer guides and review the target project's docs and diff.")
+        print("Files and invocation policy prepared. Project initialization and host availability still require agent verification.")
+        for item_id in selected:
+            print(f"Pending initialization/verification: {item_id} — {ITEMS[item_id]['guide']}")
+        print("Verify ignored installation artifacts and tracked project changes using docs/git-hygiene.md before declaring setup complete.")
         return 0
     except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
         print(f"Setup stopped: {exc}", file=sys.stderr)
